@@ -28,6 +28,7 @@ Share URL/header and HTTP error translation in a small helper if that avoids dup
 
 ## Home Assistant integration
 
+- Conversation agents used in the pipeline need an instruction-following chat model with tool/function calling and streaming Chat Completions support through the gateway provider. User-tested examples include GLM and Gemma. Enable Device Control / Assist (`assist`) and leave Home Assistant admin tasks (`homeassistant`) disabled for hardware voice use; the admin API requires an authenticated administrator.
 - `const.py`: add STT/TTS subentry type constants, fixed model IDs and Draco speaker. Do **not** add these types to `TRACKED_SUBENTRY_TYPES`.
 - `config_flow.py`: register STT and TTS subentry flows in `async_get_supported_subentry_types`. Use the existing `entry_not_loaded` check and name-only creation. No configurable model parameters to reconfigure; handle a reconfigure attempt with an explicit abort and matching translation rather than showing an empty form. Do not create default speech subentries or run model-catalog validation for fixed IDs.
 - `__init__.py` / `manifest.json`: add `Platform.STT` and `Platform.TTS` to `PLATFORMS`, and `stt` and `tts` to manifest `dependencies`. Existing startup validation can continue to skip these types; existing tracked statistics stay unchanged.
@@ -49,7 +50,13 @@ Share URL/header and HTTP error translation in a small helper if that avoids dup
 - HA's Assist pipeline supplies headerless PCM despite advertising WAV/PCM metadata. Following clarification of the goal, STT wraps that 16-kHz, 16-bit mono audio in WAV before uploading it to Cloudflare. Complete WAV input is also validated; no resampling is performed.
 - Initial live TTS calls failed inside HA with `TTS engine name is not set.` because the original device-derived display name did not populate `engine.name`. TTS now exposes the subentry title as its explicit engine name, without a device-name prefix. The regression test uses HA's TTS manager and output stream rather than calling only the integration entity directly.
 - The user confirmed live TTS playback after the naming fix and successful device-state changes from a hardware Assist device using specific English instructions, for example “turn on the big lamp.” This supersedes the initial implementation commit's note that live testing was pending.
+- Specific device instructions can be handled locally by HA and do not alone establish that the gateway conversation path works. Subsequent testing of a general question exposed a schema-engine mismatch on newer HA: Probatio's `_Unsupported` sentinel leaked through the older Voluptuous converter into `tools[].function.parameters`. Tool and structured-output conversion now select the converter matching the schema engine; a regression test serializes a general question with Probatio tools through the real OpenAI SDK and a mocked HTTP response.
+- After the schema fix, the user confirmed device control and general-question responses in browser text and browser voice. Hardware requests initially failed with `Error getting LLM API ['assist', 'homeassistant'] ... Unauthorized`: selecting the administrator-only API made the combined API require an administrator identity absent from the hardware request. Keeping Device Control / Assist enabled and disabling Home Assistant admin tasks resolved the issue. The user reports the hardware pipeline is now working well, with GLM and Gemma as tested conversation-model examples.
 - Exact live TTS HTTP status/content type, gateway-log inspection, and prepaid billing verification have not been reported. The implementation logs TTS status/content type at debug level to support those checks.
+
+## Future state
+
+Allow speech subentries to select and customize STT/TTS models and supported voice settings. These are currently hardcoded to Whisper Large v3 Turbo for transcription and Aura-2 with Draco/MP3 for speech generation. The name-only, fixed-English behavior remains the implemented v1 contract; configurable speech models and voices are follow-up work.
 
 ## References
 

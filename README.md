@@ -79,20 +79,30 @@ This will create 3 Workers AI models to get you started -- a general LLM model f
 
 ## Adding a model
 
-From the integration page, click **Add model**:
+From the integration page, add a subentry for the capability you need:
 
-- **Chat model** -- becomes a conversation agent and AI task entity. Pick a provider and model ID.
-- **Image model** -- generates images via Workers AI.
+- **Conversation agent** -- handles conversation and device control. Pick a provider and model ID.
+- **AI data task** -- extracts or generates structured data using a chat model.
+- **AI image task** -- generates images via Workers AI.
+- **Speech-to-text engine** or **Text-to-speech engine** -- adds one of the fixed English speech engines described below.
 
-For a quick start, use `workers-ai` as the provider and one of the models below. Each chat model has a system prompt, an [LLM API](https://www.home-assistant.io/integrations/conversation/) selection for tool calling, and optional tuning (temperature, top_p, max tokens, cache TTL).
+For a quick start, use `workers-ai` as the provider and one of the models below. Conversation agents have a system prompt, an [LLM API](https://www.home-assistant.io/integrations/conversation/) selection for tool calling, and optional tuning (temperature, top_p, max tokens, cache TTL).
+
+### Setting up a conversation agent
+
+1. Choose an **instruction-following chat model with tool/function calling and streaming Chat Completions support** through your selected gateway provider. Tool calling lets the model invoke HA's device-control tools. User-tested examples include **GLM** and **Gemma**; check the exact model variant and provider for these capabilities. The conversation model does not need audio support because STT and TTS handle speech separately.
+2. In the agent's LLM API settings, enable **Device Control / Assist** (`assist`) and leave **Home Assistant admin tasks** (`homeassistant`) disabled. Device Control exposes HA tools while still allowing general questions. Admin tasks require an authenticated HA administrator; a hardware voice device does not normally carry that browser-user identity.
+3. Expose the devices you want Assist to control in HA's voice-assistant settings, then select this conversation agent in your assistant/pipeline. Assign that same assistant to your hardware voice device.
+4. Test both a device command (for example, “turn on the big lamp”) and a general question (for example, “Who is Stephen Graham Jones?”). Recognized device commands can run locally in HA; a general question checks the model's conversation path as well.
 
 ## English Assist voice pipeline
 
 1. On the Cloudflare AI Gateway integration page, add a **Speech-to-text engine**, and give it a name (for example, “Cloudflare Whisper”).
 2. Add a **Text-to-speech engine**, and give it a name (for example, “Cloudflare Draco”). Speech engines are added explicitly, not created during initial setup.
 3. Open **Settings > Voice assistants** and add or edit an assistant. Choose **English** (English locales such as `en-US` select the engines' `en` language).
-4. Select your existing conversation agent, **Cloudflare Whisper** for speech-to-text, and **Cloudflare Draco** for text-to-speech. Enable Assist in the conversation agent's LLM API settings to control devices.
-5. Try a spoken command. Confirm that it is transcribed and the reply plays, and that both model requests appear in your Cloudflare gateway logs. If using prepaid billing, verify the charges there as well.
+4. Select a conversation agent configured as [described above](#setting-up-a-conversation-agent), **Cloudflare Whisper** for speech-to-text, and **Cloudflare Draco** for text-to-speech. Enable **Device Control / Assist** and leave **Home Assistant admin tasks** disabled on that agent.
+5. Assign this assistant to your hardware voice device. Test a device command and a general question through browser text, browser voice, and the hardware device.
+6. Confirm that speech is transcribed and the reply plays, and that STT/TTS requests and model conversation requests appear in your Cloudflare gateway logs. If using prepaid billing, verify the charges there as well.
 
 The speech models are fixed: `@cf/openai/whisper-large-v3-turbo` transcribes English, and `@cf/deepgram/aura-2-en` returns MP3 speech with speaker `draco`. There are no model, voice, speed, or pipeline voice overrides. Each short reply uses one TTS request.
 
@@ -102,11 +112,15 @@ Speech requests use Cloudflare's account-scoped Workers AI REST endpoint with yo
 
 ### Live verification and TTS compatibility
 
-The user has confirmed live TTS playback and successful device control from a hardware Assist device using specific English instructions such as “turn on the big lamp.” This exercises speech transcription and the existing conversation agent's device-control path; spoken output has also been verified.
+Live testing has confirmed device control and general-question answers through browser text, browser voice, and a hardware Assist device. User-tested conversation models include GLM and Gemma. The working hardware configuration enables Device Control (`assist`) and disables Home Assistant admin tasks (`homeassistant`).
 
 Initial live testing exposed `TTS engine name is not set.` before any Cloudflare request was made. HA's TTS manager requires an explicit engine name, even when the entity already has a device-derived display name. The TTS engine now uses the name chosen during setup, without duplicating the device name. A regression test exercises HA's TTS manager and verifies that the model's MP3 bytes reach the output stream.
 
 If you installed an earlier development copy and see that error, replace `custom_components/cloudflare_ai_gateway/tts.py` with the updated file and restart Home Assistant. Existing speech subentries can be reused.
+
+### Future speech customization
+
+Planned follow-up work is to let each speech subentry select and customize its STT/TTS model and supported voice settings. The current release hardcodes Whisper Large v3 Turbo, Aura-2, the Draco speaker, English, and MP3 output; speech creation currently asks only for a name. Model and voice customization is not available yet.
 
 ## Usage sensors
 
@@ -134,7 +148,7 @@ These are good starting points on Workers AI. The integration creates the first 
 
 ### Chat
 
-All of these support function calling, which is what lets a model turn a voice command into an actual HA action.
+For conversation agents that control devices, choose a model with tool/function calling and streaming Chat Completions support. GLM and Gemma have been tested by the user; the table below lists model IDs for additional starting points. Check the capabilities of the exact variant at your provider.
 
 | Model | Model ID | Cost | Notes |
 |---|---|---|---|
@@ -164,7 +178,11 @@ If you have keys for OpenAI, Anthropic, Google, or [other providers](https://dev
 
 **Third-party model returns an error:** The provider's API key isn't configured in your [AI Gateway settings](https://dash.cloudflare.com/?to=/:account/ai/ai-gateway/general). Add it there, not in HA.
 
-**Model chats but won't control devices:** You need to select an LLM API (Assist) in the model's configuration. Without it, the model can't call HA tools.
+**Model chats but won't control devices:** Choose a model supporting tool/function calling, enable **Device Control / Assist** (`assist`) in the agent's LLM API settings, and expose the target devices to Assist.
+
+**Hardware says “Error preparing LLM API,” but browser conversations work:** If the log says `Error getting LLM API ['assist', 'homeassistant'] ... Unauthorized`, deselect **Home Assistant admin tasks** (`homeassistant`) and keep **Device Control / Assist** (`assist`) enabled. The admin API requires an authenticated administrator; hardware requests generally lack that user identity. Start a fresh conversation after saving. This is HA authorization, not a Cloudflare token error.
+
+**Device commands work, but general questions fail with `Object of type _Unsupported is not JSON serializable`:** Newer HA versions use Probatio tool schemas. The integration must use Probatio's converter for those schemas rather than the older Voluptuous converter. Update `custom_components/cloudflare_ai_gateway/entity.py` and restart HA if using a development copy. This failure occurs before the request reaches Cloudflare; the selected conversation agent should handle general questions as well as device control.
 
 **Debugging requests:** Your AI Gateway dashboard shows every request with status codes, latency, and token counts. Check there first for provider-side issues.
 

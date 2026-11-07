@@ -24,9 +24,16 @@ Home Assistant custom integration for Cloudflare AI Gateway. Routes conversation
 - **Subentries** = conversation agents, AI data/image tasks, or fixed English STT/TTS engines
 - **Universal/BYOK auth** — CF token in Authorization header, Cloudflare injects stored provider keys
 - Base LLM logic in `entity.py`, platform-specific code in `conversation.py`
+- Tool and structured-output schemas use Probatio's native converter on newer HA and the Voluptuous converter on older HA. Match the schema engine and serializer sentinel; mixing them puts an unserializable `_Unsupported` object in API requests
+- Conversation models need tool/function calling and streaming Chat Completions support. GLM and Gemma are user-tested examples. For hardware voice, enable Device Control / Assist (`assist`) and disable Home Assistant admin tasks (`homeassistant`): the admin API requires an administrator identity that hardware requests normally lack
 - Speech uses Workers AI's account-scoped `/ai/run/{model}` endpoint with the parent token and `cf-aig-gateway-id`; requests and HTTP error translation are shared in `speech.py`
 - STT buffers HA's raw PCM and wraps it in WAV (30-second limit); TTS returns Aura-2 Draco MP3 bytes (4096-character limit). Neither creates usage sensors
 - TTS must set an explicit engine name from the subentry title: HA's TTS manager rejects a device-derived display name alone. Test through the HA TTS manager as well as the entity
+
+## Current state and follow-up
+
+- The user has verified device control and general conversation through browser text, browser voice, and a hardware Assist device after the schema-conversion fix and Assist-only API configuration
+- Speech models, language, Draco voice, and MP3 output are fixed today. Selecting and customizing STT/TTS models and supported voices is planned follow-up work, not an implemented setting
 
 ## Key Files
 

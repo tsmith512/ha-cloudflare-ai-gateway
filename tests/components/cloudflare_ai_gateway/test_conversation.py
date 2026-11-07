@@ -1,14 +1,18 @@
 """Tests for the Cloudflare AI Gateway conversation entity."""
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import openai
+import probatio
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components import conversation
 from homeassistant.const import ATTR_SUPPORTED_FEATURES
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import intent
+from homeassistant.helpers import intent, llm
+from homeassistant.helpers.selector import TextSelector
 
 
 async def test_conversation_entity_is_registered(
@@ -42,6 +46,77 @@ async def test_conversation_agent_responds(
 
     assert result.response.response_type == intent.IntentResponseType.ACTION_DONE
     assert "Hello!" in result.response.speech["plain"]["speech"]
+
+
+async def test_general_question_with_probatio_tools(
+    hass: HomeAssistant,
+    mock_config_entry_with_subentries: MockConfigEntry,
+    mock_init_component_with_subentries: None,
+) -> None:
+    """Serialize newer HA tool schemas through the real OpenAI SDK."""
+    tool = MagicMock(spec=llm.Tool)
+    tool.name = "HassTurnOn"
+    tool.description = "Turn on a device"
+    tool.parameters = probatio.Schema({probatio.Required("name"): TextSelector({}), probatio.Optional("area"): str})
+
+    def native_serializer(schema):
+        # Match newer HA's selector serializer and its Probatio sentinel.
+        if isinstance(schema, TextSelector):
+            return {"type": "string"}
+        return probatio.UNSUPPORTED
+
+    api = MagicMock(spec=llm.APIInstance)
+    api.api_prompt = "Use tools for device control; answer general questions directly."
+    api.tools = [tool]
+    api.custom_serializer = native_serializer
+    answer = "Stephen Graham Jones is an American author known for horror fiction."
+    requests = []
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload["messages"][-1]["content"] == "Who is Stephen Graham Jones?"
+        parameters = payload["tools"][0]["function"]["parameters"]
+        assert parameters["type"] == "object"
+        assert parameters["properties"] == {"name": {"type": "string"}, "area": {"type": "string"}}
+        assert parameters["required"] == ["name"]
+        event = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": payload["model"],
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
+        }
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n",
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request)) as http_client:
+        client = openai.AsyncOpenAI(
+            api_key="test-cf-token",
+            base_url="https://gateway.ai.cloudflare.com/v1/test-account-id/test-gateway/compat",
+            http_client=http_client,
+        )
+        with (
+            patch("homeassistant.helpers.llm.async_get_api", return_value=api),
+            patch(
+                "custom_components.cloudflare_ai_gateway.entity.CloudflareAIGatewayBaseLLMEntity._get_client",
+                return_value=client,
+            ),
+        ):
+            result = await conversation.async_converse(
+                hass,
+                "Who is Stephen Graham Jones?",
+                conversation_id=None,
+                context=None,
+                agent_id="conversation.test_conversation",
+            )
+
+    assert result.response.response_type == intent.IntentResponseType.ACTION_DONE
+    assert result.response.speech["plain"]["speech"] == answer
+    assert len(requests) == 1
 
 
 def _mock_openai_error(error_class, status_code, message="error"):
