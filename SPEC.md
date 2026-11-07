@@ -1,155 +1,65 @@
-# Spec: STT and TTS for `ha-cloudflare-ai-gateway` (fork)
+# Spec: English Assist speech through Cloudflare AI Gateway
 
-## Goal
-Add HA speech-to-text and text-to-speech entities that run Workers AI models through the user's existing gateway. They use the same credentials and subentry structure as the existing models, so Assist can run fully through Cloudflare.
+Status: proposal reviewed against this repository and published Cloudflare/Home Assistant documentation. Both model-in-path requests have been verified against the configured gateway: Whisper returned a transcription result and Aura-2/Draco returned playable audio in one request. No feature implementation is part of this review.
 
-## Scope
-**In:**
-- `stt` and `tts` platforms as subentry types.
-- Config flow, strings and translations.
-- Tests and README.
+## Goal and scope
 
-**Out:**
-- Usage sensors. Don't add the new types to `TRACKED_SUBENTRY_TYPES`, and don't call `record_success` or `record_error`.
-- Streaming STT/TTS.
-- Nova-3 and MeloTTS (optional later).
-- Any change to existing conversation, AI task, image or sensor behavior.
-- Migrating the `/compat` chat path.
+Add one STT and one TTS entity, each backed by a subentry on the existing gateway config entry, to complete an English-language Assist pipeline with an existing conversation agent.
 
-## Architecture
+- STT: Cloudflare Workers AI `@cf/openai/whisper-large-v3-turbo`, the original STT model in this spec, configured for English transcription. `whisper-tiny-en` has a smaller model but no published end-to-end latency comparison with turbo and is scheduled for deprecation November 20, 2026; choose turbo as the supported speed-oriented option, then compare actual gateway latency with short English voice clips if speed remains a concern. Do not claim turbo is faster than tiny without measurements.
+- TTS: Cloudflare Workers AI `@cf/deepgram/aura-2-en`, fixed speaker `draco`, `encoding: "mp3"`. Draco is a valid Aura-2 EN speaker in the published input schema. Recommend Aura-2 EN over Aura-1 because it restores the original schema-verified English contract and Cloudflare documents an MP3 binary output; both are marked real-time but the documentation does not establish which has lower end-to-end latency. Further voice customization and speed control are not part of v1 (do not carry over OpenAI's Onyx/1.1 settings to Aura).
+- Models and language are fixed for v1; no per-pipeline voice options or arbitrary model IDs. The two subentry types provide separate entities, not selectable model variants. No new usage sensors, streaming methods, or change to chat/image/AI task request paths.
+- Include config flow, strings/translations, tests, README, and release instructions.
 
-**Transport and auth.** Copy the image entity's approach [2].
-- Use `httpx` via `homeassistant.helpers.httpx_client.get_async_client(hass)`.
-- POST to `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/{model}`.
-- Send headers `cf-aig-authorization: Bearer <cf_api_token>` and `Authorization: Bearer <cf_api_token>`.
-- Read `account_id`, `gateway_id` and `cf_api_token` from `entry.data`.
-- Don't add the openai SDK, the `cloudflare` SDK, or `aiohttp`.
+## Credentials and routing
 
-**Shared helper.** Add one small module, e.g. `gateway.py`, so STT and TTS don't duplicate the URL and header logic:
-- `workers_ai_url(entry, model) -> str`
-- `gateway_headers(entry) -> dict`
-- `async_post(hass, entry, model, *, json=None, timeout) -> httpx.Response`, which raises `HomeAssistantError` on connection failures and non-2xx responses and starts reauth on 401.
+- Reuse `CONF_ACCOUNT_ID`, `CONF_GATEWAY_ID` and `CONF_CF_API_TOKEN` from the parent config entry. The user will update the token. For Cloudflare REST `/accounts/{account_id}/ai/*`, document the required **Account > Workers AI > Read** permission. Preserve existing gateway permissions required for current chat/other features; **Account > Account Analytics > Read** remains optional for the existing cost sensor. Setup's token verification checks validity, not inference permissions; do not add permission probes or alternative-auth logic.
+- Use the documented **model-in-path** Workers AI route for both selected models: `POST https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}` (for example `/ai/run/@cf/deepgram/aura-2-en`) with `Authorization: Bearer <cf_api_token>`, `cf-aig-gateway-id: <gateway_id>`, and the model input JSON directly in the body. Cloudflare specifically documents this form for prepaid AI Gateway credits on Workers AI when the gateway's **Workers AI Billing** setting is **Unified billing**. Set that option and load credits before expecting prepaid billing; do not mistake the token permission for billing configuration. There is no provider key for either Workers AI model. Leave the existing `/compat` conversation route and image request path alone.
+- Use HA's shared `httpx` client (`homeassistant.helpers.httpx_client.get_async_client(hass)`). A small helper may share the URL, headers and HTTP request/error translation; model payload/response handling stays in the respective entities. No new pip requirements or shared client in `entry.runtime_data`.
+- Follow existing user-facing error handling for 401 (start reauth for invalid token), 403, 404 and connection/timeout failures. Missing permissions are documented setup prerequisites, not a separate permission-detection feature. Parse Cloudflare `errors[].message` when available, without logging token, audio or whole responses. Reject unsuccessful or malformed payloads.
 
-Leave the existing image code alone unless refactoring it is trivial.
+## Model and response contracts
 
-**Client object.** Don't add one. Entities build requests from `entry.data` at call time. `entry.runtime_data` is `CloudflareAIGatewayRuntimeData` (stats, store, analytics coordinator), not a client.
+**STT — `@cf/openai/whisper-large-v3-turbo`:** `schema-input.json` requires `audio` and allows a base64-encoded audio string. Send `{ "audio": "<base64 WAV>", "language": "en", "task": "transcribe" }` directly to the model-in-path route. **Verified response:** HTTP 200, `Content-Type: application/json`, with top-level `errors`, `messages`, `result`, `success`; `result` has `text`, `segments`, `transcription_info`, `usage`, `vtt`, `word_count`. Read `result.text`; check `success` and handle `errors` before accepting the transcript. Base64 adds about 33% payload size, substantially less overhead than tiny's JSON integer array.
 
-**Error handling.** Mirror `ai_task.py` [2]:
-- 401: `self.entry.async_start_reauth(self.hass)`, then fail.
-- 403: permission message.
-- 404: model-not-found message.
-- `httpx.ConnectError` and `TimeoutException`: "Cannot reach Cloudflare AI Gateway".
-- Parse `errors[].message` from the response body for detail.
+**TTS — `@cf/deepgram/aura-2-en`:** send `{ "text": message, "speaker": "draco", "encoding": "mp3" }` directly to the model-in-path route. Cloudflare's Aura-2 output schema specifies **binary `audio/mpeg`**, not an audio URL. **Verified response:** the request returned directly playable audio in the desired Draco voice; no second download was needed. Return `("mp3", audio_bytes)` for a nonempty audio response. The exact HTTP status and `Content-Type` were not reported; inspect those headers during implementation without treating them as already verified. There is no documented Aura-2 `speed` input, so do not send one. Do not add `supported_options`, dynamic voice options, or speculative codec sniffing for v1.
 
-**Response envelope.** The native route wraps JSON as `{"result": {...}, "success": true}` [2]. Unwrap it, and accept an unwrapped body too.
+**Verification record:** both selected models responded on the configured `/ai/run/{model}` route. During implementation, verify the TTS response status and content type and confirm gateway logs and prepaid-credit billing. Do not add an alternate route, audio download, or speculative response adapters without evidence.
 
-**Entities.** Each gets its own small base:
-- `_attr_has_entity_name = True`, `_attr_name = None`, `unique_id = subentry.subentry_id`.
-- Device info as in the image entity [2]: `identifiers={(DOMAIN, subentry_id)}`, `name=subentry.title`, `manufacturer="Cloudflare"`, `model=f"workers-ai/{model}"`, `entry_type=SERVICE`.
-- Don't inherit `CloudflareAIGatewayBaseLLMEntity`, which carries chat logic [1].
+## HA entity and configuration work
 
-## Model contracts
+- `const.py`: add `SUBENTRY_TYPE_STT` and `SUBENTRY_TYPE_TTS` plus the fixed `@cf/openai/whisper-large-v3-turbo` and `@cf/deepgram/aura-2-en` IDs and speaker `draco`. Do not add editable model, voice or speed settings for v1 unless a specific need emerges. Keep `TRACKED_SUBENTRY_TYPES` unchanged.
+- `config_flow.py`: register two subentry flows in `async_get_supported_subentry_types`. Model their new-entry name field, `entry_not_loaded` abort and reconfigure semantics on the image flow, but omit model selectors and `_validate_workers_ai_model`: fixed model IDs need no user-entered ID validation, and a catalog match cannot guarantee inference availability. Name the new STT/TTS subentries clearly; do not create them by default for existing or new gateway entries.
+- `__init__.py` and `manifest.json`: extend `PLATFORMS` with `Platform.STT` and `Platform.TTS`, and add `stt` and `tts` to manifest `dependencies`; these are HA component dependencies, **not** new pip requirements. The existing startup model-validation loop skips the new types and can stay as-is.
+- `stt.py`: subclass HA `stt.SpeechToTextEntity`. Create one entity per STT subentry with `config_subentry_id`. Expose `supported_languages = ["en"]`: the installed HA language matcher maps English locale targets such as `en-US`/`en-GB` to `en` for pipeline selection, and the entity's metadata check then sees `en`. Verify this on the remote release. Advertise WAV, PCM, 16-bit, 16000 Hz, mono using HA enums. Buffer the async stream, reject empty data, and use the actual WAV bytes when already present. Avoid speculative raw-PCM WAV wrapping unless a real HA stream needs it; do not silently interpret arbitrary bytes as PCM. Encode WAV bytes as base64; return `stt.SpeechResult(text, stt.SpeechResultState.SUCCESS)` for nonempty transcript, otherwise `ERROR` with appropriate logging. At 16 kHz/16-bit/mono, WAV audio is about **32 KB per second**, plus base64 overhead on the wire.
+- `tts.py`: subclass HA `tts.TextToSpeechEntity`. Create one entity per TTS subentry with `config_subentry_id`, `_attr_default_language = "en"`, `_attr_supported_languages = ["en"]` (verify locale matching), and `async_get_tts_audio(message, language, options)` returning `("mp3", bytes)`. Ignore pipeline options rather than exposing an unsupported voice choice; do not implement streaming. Raise a useful error for empty text, HTTP errors, or invalid/empty MP3 bytes. HA's installed base entity supports the non-streaming method.
+- Both entities: `_attr_has_entity_name = True`, `_attr_name = None`, unique ID from subentry ID, service device info with `(DOMAIN, subentry_id)` and the corresponding `workers-ai/{model}`. Do not inherit `CloudflareAIGatewayBaseLLMEntity` or record stats via `record_success`/`record_error`.
+- `strings.json` and `translations/en.json`: add minimal `config_subentries.stt` and `.tts` sections for name-only create/reconfigure flows; `translations/en.json` is committed and mirrors `strings.json` in this repo. README: explain token permission, prepaid-credit/gateway billing setup, English Assist pipeline setup and fixed Draco speaker.
 
-**Whisper** (`@cf/openai/whisper-large-v3-turbo`) [5]:
-- Input: `audio` (required, "one of", exact shape not shown on the page), optional `language`, `task`, `vad_filter`, `initial_prompt`.
-- Output: `text`, `word_count`, `segments`, `vtt`.
-- The agent must open `schema-input.json` (URL below) to confirm the `audio` type. My earlier reference code sent a base64 string in JSON, which I haven't confirmed.
+## Limits and tradeoffs for a simple first release
 
-**Aura-2 EN** (`@cf/deepgram/aura-2-en`) [6]:
-- Input: `text`, `speaker` (default `luna`), `encoding` (`linear16`, `flac`, `mulaw`, `alaw`, `mp3`, `opus`, `aac`), optional `container`, `sample_rate`, `bit_rate`.
-- Valid speakers: amalthea, andromeda, apollo, arcas, aries, asteria, athena, atlas, aurora, callista, cora, cordelia, delia, draco, electra, harmonia, helena, hera, hermes, hyperion, iris, janus, juno, jupiter, luna, mars, minerva, neptune, odysseus, ophelia, orion, orpheus, pandora, phoebe, pluto, saturn, thalia, theia, vesta, zeus.
-- Request `encoding: "mp3"`. The response is raw audio; the page says the binding returns MPEG [6].
-- Sniff the actual bytes for the extension (ID3 or 0xFF sync means mp3, RIFF means wav, OggS means ogg, fLaC means flac). If the response isn't `audio/*`, try JSON with a base64 `audio` field.
+- **TTS:** Generate a few sentences in one synchronous request; no text splitting, second audio download or streaming implementation. Keep a simple fixed input-length bound (proposed 4096 characters) so unanticipated long messages fail clearly without inventing a model-specific limit not published in Aura-2's schema.
+- **STT:** The input is a voice command, not a long recording. Cap buffered audio at **30 seconds / 960,000 PCM bytes plus WAV header**, measured while accumulating bytes (roughly 0.96 MB). This is a simple memory/request-size guard, not a Whisper model limit; the model swap does not remove the reason for it. Reject oversize input early with `SpeechResultState.ERROR`; no resampling, chunking, fallback model, or long-recording support in v1. Base64 increases the request size by about one third. Raising the bound later (e.g. to 60 seconds, about 1.92 MB raw and 2.56 MB base64 before JSON overhead) is a constant change plus a test, but increases upload time, inference latency, memory and billable audio duration.
+- Keep reasonable finite inference timeouts. These are implementation bounds, not user-configurable limits or new UI settings.
 
-## Implementation tasks
+## Tests and acceptance
 
-**`const.py`**
-- Add `SUBENTRY_TYPE_STT = "stt"` and `SUBENTRY_TYPE_TTS = "tts"`.
-- Add `CONF_STT_MODEL`, `CONF_TTS_MODEL`, `CONF_VOICE`.
-- Defaults: Whisper and Aura-2 EN above, voice `luna`.
-- Add `SUPPORTED_STT_MODELS`, `SUPPORTED_TTS_MODELS` and `AURA2_VOICES`.
+- Follow `tests/components/cloudflare_ai_gateway/conftest.py` (`MockConfigEntry`, `ConfigSubentryData`, `_mock_init`); existing image tests mock the shared HTTP client. Test registration, name-only subentry creation/reconfiguration/not-loaded, one English STT transcript with exact base64 WAV request shape, empty/oversize/bad responses, fixed Aura-2 `text`/`draco`/`mp3` request and binary MP3 return (no second GET), 401 reauth, 403/404/timeouts, no STT/TTS usage sensors and no change to other entities. Use realistic `httpx.Response` mocks for content type/body behavior.
+- On implementation completion run `mise run validate`; CI additionally runs hassfest/HACS validation in `.github/workflows/validate.yml`. The review itself does not build or run tests.
+- On a current November 2026 HA release, adding both subentries creates `stt.*` and `tts.*` entities selectable in Settings → Voice assistants; configure one English pipeline with an existing gateway conversation agent. Verify STT transcription and MP3 playback on the remote instance and both inference calls in the configured gateway's logs. With credits enabled, verify Workers AI billing on that gateway.
+- Publish through GitHub/HACS after validation and live response verification. The existing `mise run release` script validates, stamps manifest version, commits, tags and **pushes to `origin main`**; it must be invoked only when a release/push is explicitly intended. The tag triggers `.github/workflows/release.yml` to attach `cloudflare_ai_gateway.zip`; an installation using the GitHub/HACS release should be confirmed on the remote server. No release is performed during this spec review.
 
-**`config_flow.py`**
-- Add `CloudflareSTTSubentryFlowHandler` and `CloudflareTTSSubentryFlowHandler`, subclassing `CloudflareBaseSubentryFlowHandler`.
-- Model them on `CloudflareImageSubentryFlowHandler`: name field when new, a `SelectSelector` dropdown with `custom_value=True`, the `entry_not_loaded` abort, and `_validate_workers_ai_model` returning `model_not_found`.
-- The TTS flow adds a voice selector.
-- Register both in `async_get_supported_subentry_types`.
-- Don't add them to the default subentries created at setup.
+## Remaining verification
 
-**`__init__.py`**
-- Extend `PLATFORMS` with `Platform.STT` and `Platform.TTS`.
-- The startup model-validation loop skips unrecognized subentry types, so leave it alone.
+1. Both routes have been verified for their intended audio/transcription responses. Gateway log/billing behavior and the TTS response status and content type should be checked during implementation. Do not implement a follow-up download or alternate route without revisiting the observed behavior.
+2. If measured short-command latency is important, benchmark `whisper-large-v3-turbo` on the user's gateway. No published data here establish that it beats the retiring tiny model. Aura-1 and Aura-2 are both marked real-time; the recommendation for Aura-2 is based on its documented contract and original scope, not a measured speed advantage.
 
-**`stt.py`**
-- Subclass `SpeechToTextEntity`, one entity per STT subentry (`config_subentry_id=...`).
-- Declare supported languages (Whisper's list), formats (WAV), codecs (PCM), bit rate 16, sample rate 16000, and mono.
-- In `async_process_audio_stream`:
-  - Buffer the stream.
-  - Wrap raw PCM in a WAV header if there's no `RIFF` prefix.
-  - Send the audio in the shape the model schema requires, with the base language code.
-  - Return `SpeechResult(text, SUCCESS)`. Return `ERROR` on empty audio, empty text or failure.
+## Sources
 
-**`tts.py`**
-- Subclass `TextToSpeechEntity`.
-- Declare `default_language`, `supported_languages` (`["en"]` for aura-2-en), `supported_options` (`["voice"]`), `default_options`, and `async_get_supported_voices`.
-- `async_get_tts_audio` returns `(extension, bytes)`. Check the HA base class for the expected failure convention.
-
-**`strings.json` and `translations/en.json`**
-- Add `config_subentries.stt` and `config_subentries.tts` blocks mirroring `ai_task_image` [3]: `abort.entry_not_loaded`, `abort.reconfigure_successful`, `error.model_not_found`, `entry_type`, `initiate_flow.user` and `.reconfigure`, and `step.user.data` and `data_description`.
-- Match key structure exactly so hassfest passes.
-- I haven't seen `translations/en.json`. Check whether it's generated from `strings.json` or maintained by hand.
-
-**README**
-- Add STT and TTS under "What it does" and "Adding a model".
-- Add an example pipeline: Cloudflare STT, a gateway chat model, Cloudflare TTS.
-
-## Tests
-I haven't read `tests/`, so the agent should mirror its fixtures and harness. Cover:
-- STT success, empty audio, and WAV wrapping.
-- TTS audio-bytes and base64-JSON responses, plus format sniffing.
-- 401 triggering reauth.
-- Subentry create and reconfigure flows, including `model_not_found`.
-
-Mock at the HTTP transport layer. Run `mise run validate`.
-
-## Acceptance criteria
-1. Clean install loads with no missing-module errors. User's Home Assistant installation is running on another host. Provide instructions to make a release which can be copied over.
-2. Adding an STT and a TTS model creates `stt.*` and `tts.*` entities.
-3. Both appear as engines in Settings → Voice assistants.
-4. Gateway logs show Whisper and Aura-2 requests.
-5. No change to existing entities.
-6. No new `requirements`.
-
-## Open items for the agent to verify
-1. Whether the native `gateway.ai.cloudflare.com/.../workers-ai/{model}` route works for the user's gateway with both headers. The AI Gateway Workers AI page doesn't document it [4]. If it fails, check the `api.cloudflare.com` route with `cf-aig-gateway-id` shown there, and report which one works.
-2. The `audio` input type in Whisper's `schema-input.json`.
-3. The failure convention in HA's `tts` base class.
-4. How `translations/en.json` is generated.
-5. The `tests/` conventions.
-
-## References
-
-**Cloudflare** (the first four I fetched; the rest are links from those pages' nav)
-- AI Gateway, Workers AI: https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/
-- Whisper large-v3-turbo: https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/
-- Whisper input schema: https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/schema-input.json
-- Aura-2 EN: https://developers.cloudflare.com/workers-ai/models/aura-2-en/
-- Aura-2 schemas: https://developers.cloudflare.com/workers-ai/models/aura-2-en/schema-input.json and `schema-output.json`
-- Authenticated gateway: https://developers.cloudflare.com/ai-gateway/configuration/authentication/
-- AI Gateway REST API: https://developers.cloudflare.com/ai-gateway/usage/rest-api/
-- Workers AI OpenAI-compatible endpoints: https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/
-- Model catalog: https://developers.cloudflare.com/workers-ai/models/
-- Machine-readable docs: https://developers.cloudflare.com/ai-gateway/llms-full.txt and https://developers.cloudflare.com/workers-ai/llms-full.txt
-
-**Home Assistant** (from memory, not fetched, so have the agent confirm they resolve)
-- Manifest: https://developers.home-assistant.io/docs/creating_integration_manifest/
-- Config flow and subentries: https://developers.home-assistant.io/docs/config_entries_config_flow_handler/
-- Entities: https://developers.home-assistant.io/docs/core/entity/
-- STT base class: https://github.com/home-assistant/core/blob/dev/homeassistant/components/stt/__init__.py
-- TTS base class: https://github.com/home-assistant/core/blob/dev/homeassistant/components/tts/__init__.py
-- Reference integration: https://github.com/home-assistant/core/tree/dev/homeassistant/components/openai_conversation. I believe it has STT/TTS with subentries, but I haven't confirmed.
-- Quality scale: https://developers.home-assistant.io/docs/core/integration-quality-scale/
-
-**Repos**
-- Fork base (MIT): https://github.com/michaeldwan/ha-cloudflare-ai-gateway
-- Reference for STT/TTS logic (Apache-2.0, keep the notice on ported code;
+- Cloudflare REST API and token requirement: https://developers.cloudflare.com/ai-gateway/usage/rest-api/
+- Whisper Large v3 Turbo model and schema: https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/ and https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/schema-input.json
+- Whisper Tiny EN deprecation and input comparison: https://developers.cloudflare.com/workers-ai/models/whisper-tiny-en/
+- Aura-2 EN model and output schema: https://developers.cloudflare.com/workers-ai/models/aura-2-en/ and https://developers.cloudflare.com/workers-ai/models/aura-2-en/schema-output.json
+- Aura-1 comparison: https://developers.cloudflare.com/workers-ai/models/aura-1/
+- Cloudflare Unified Billing and Workers AI billing setting: https://developers.cloudflare.com/ai-gateway/features/unified-billing/ and https://developers.cloudflare.com/ai-gateway/configuration/manage-gateway/
+- HA STT and TTS bases: https://github.com/home-assistant/core/blob/dev/homeassistant/components/stt/entity.py and https://github.com/home-assistant/core/blob/dev/homeassistant/components/tts/entity.py
