@@ -5,7 +5,6 @@ Add HA speech-to-text and text-to-speech entities that run Workers AI models thr
 
 ## Scope
 **In:**
-- Manifest fix.
 - `stt` and `tts` platforms as subentry types.
 - Config flow, strings and translations.
 - Tests and README.
@@ -17,10 +16,7 @@ Add HA speech-to-text and text-to-speech entities that run Workers AI models thr
 - Any change to existing conversation, AI task, image or sensor behavior.
 - Migrating the `/compat` chat path.
 
-## Task 0: Manifest
-`manifest.json` requires only `openai>=2.21.0`, but `entity.py` imports `voluptuous_openapi` [1]. Add `voluptuous-openapi` to `requirements`, using the version constraint from HA core's `openai_conversation` manifest. Add nothing else.
-
-## Architecture (decided)
+## Architecture
 
 **Transport and auth.** Copy the image entity's approach [2].
 - Use `httpx` via `homeassistant.helpers.httpx_client.get_async_client(hass)`.
@@ -117,12 +113,12 @@ I haven't read `tests/`, so the agent should mirror its fixtures and harness. Co
 Mock at the HTTP transport layer. Run `mise run validate`.
 
 ## Acceptance criteria
-1. Clean install loads with no missing-module errors.
+1. Clean install loads with no missing-module errors. User's Home Assistant installation is running on another host. Provide instructions to make a release which can be copied over.
 2. Adding an STT and a TTS model creates `stt.*` and `tts.*` entities.
 3. Both appear as engines in Settings → Voice assistants.
 4. Gateway logs show Whisper and Aura-2 requests.
 5. No change to existing entities.
-6. No new `requirements` beyond Task 0.
+6. No new `requirements`.
 
 ## Open items for the agent to verify
 1. Whether the native `gateway.ai.cloudflare.com/.../workers-ai/{model}` route works for the user's gateway with both headers. The AI Gateway Workers AI page doesn't document it [4]. If it fails, check the `api.cloudflare.com` route with `cf-aig-gateway-id` shown there, and report which one works.
