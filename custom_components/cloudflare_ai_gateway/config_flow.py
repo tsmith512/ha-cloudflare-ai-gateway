@@ -65,6 +65,8 @@ from .const import (
     SUBENTRY_TYPE_AI_TASK_DATA,
     SUBENTRY_TYPE_AI_TASK_IMAGE,
     SUBENTRY_TYPE_CONVERSATION,
+    SUBENTRY_TYPE_STT,
+    SUBENTRY_TYPE_TTS,
     SUPPORTED_IMAGE_MODELS,
     SUPPORTED_PROVIDERS,
     WORKERS_AI_MODEL_PREFIXES,
@@ -276,7 +278,25 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             SUBENTRY_TYPE_CONVERSATION: CloudflareChatSubentryFlowHandler,
             SUBENTRY_TYPE_AI_TASK_DATA: CloudflareChatSubentryFlowHandler,
             SUBENTRY_TYPE_AI_TASK_IMAGE: CloudflareImageSubentryFlowHandler,
+            SUBENTRY_TYPE_STT: CloudflareSpeechSubentryFlowHandler,
+            SUBENTRY_TYPE_TTS: CloudflareSpeechSubentryFlowHandler,
         }
+
+
+class CloudflareSpeechSubentryFlowHandler(ConfigSubentryFlow):
+    """Name-only flow for the fixed English speech engines."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Add a speech engine without validating fixed model IDs."""
+        if self._get_entry().state != ConfigEntryState.LOADED:
+            return self.async_abort(reason="entry_not_loaded")
+        if user_input is not None:
+            return self.async_create_entry(title=user_input[CONF_NAME], data={})
+        return self.async_show_form(step_id="user", data_schema=vol.Schema({vol.Required(CONF_NAME): str}))
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Explain that the fixed engines have no configurable settings."""
+        return self.async_abort(reason="reconfigure_not_supported")
 
 
 class CloudflareBaseSubentryFlowHandler(ConfigSubentryFlow):

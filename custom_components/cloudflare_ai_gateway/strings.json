@@ -55,6 +55,40 @@
     }
   },
   "config_subentries": {
+    "stt": {
+      "abort": {
+        "entry_not_loaded": "Cannot add speech engines while the gateway is not loaded.",
+        "reconfigure_not_supported": "This English speech engine has no configurable settings. Rename it from its device page."
+      },
+      "entry_type": "Speech-to-text engine",
+      "initiate_flow": {
+        "reconfigure": "Reconfigure speech-to-text engine",
+        "user": "Add speech-to-text engine"
+      },
+      "step": {
+        "user": {
+          "data": { "name": "Name" },
+          "description": "Transcribe English speech with Workers AI Whisper Large v3 Turbo."
+        }
+      }
+    },
+    "tts": {
+      "abort": {
+        "entry_not_loaded": "Cannot add speech engines while the gateway is not loaded.",
+        "reconfigure_not_supported": "This English speech engine has no configurable settings. Rename it from its device page."
+      },
+      "entry_type": "Text-to-speech engine",
+      "initiate_flow": {
+        "reconfigure": "Reconfigure text-to-speech engine",
+        "user": "Add text-to-speech engine"
+      },
+      "step": {
+        "user": {
+          "data": { "name": "Name" },
+          "description": "Speak English with Workers AI Aura-2 and the Draco voice."
+        }
+      }
+    },
     "conversation": {
       "abort": {
         "entry_not_loaded": "Cannot add agents while the gateway is not loaded.",

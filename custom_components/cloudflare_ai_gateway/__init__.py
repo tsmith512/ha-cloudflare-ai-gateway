@@ -36,7 +36,7 @@ from .const import (
 )
 from .coordinator import CloudflareAnalyticsCoordinator
 
-PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION, Platform.SENSOR)
+PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION, Platform.SENSOR, Platform.STT, Platform.TTS)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type CloudflareAIGatewayConfigEntry = ConfigEntry[CloudflareAIGatewayRuntimeData]

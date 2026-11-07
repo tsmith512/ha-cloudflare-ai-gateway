@@ -37,6 +37,8 @@ from custom_components.cloudflare_ai_gateway.const import (
     SUBENTRY_TYPE_AI_TASK_DATA,
     SUBENTRY_TYPE_AI_TASK_IMAGE,
     SUBENTRY_TYPE_CONVERSATION,
+    SUBENTRY_TYPE_STT,
+    SUBENTRY_TYPE_TTS,
 )
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
@@ -52,6 +54,43 @@ GATEWAY_DATA = {
 
 
 # --- Parent config entry flow ---
+
+
+@pytest.mark.parametrize("subentry_type", [SUBENTRY_TYPE_STT, SUBENTRY_TYPE_TTS])
+async def test_speech_subentry_creation(hass, mock_config_entry, mock_init_component, subentry_type) -> None:
+    result = await hass.config_entries.subentries.async_init(
+        (mock_config_entry.entry_id, subentry_type), context={"source": "user"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert [str(key) for key in result["data_schema"].schema] == ["name"]
+    with patch("custom_components.cloudflare_ai_gateway.config_flow.validate_model") as validate:
+        result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"name": "English speech"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "English speech"
+    assert result["data"] == {}
+    validate.assert_not_called()
+
+
+@pytest.mark.parametrize("subentry_type", [SUBENTRY_TYPE_STT, SUBENTRY_TYPE_TTS])
+async def test_speech_subentry_not_loaded(hass, mock_config_entry, subentry_type) -> None:
+    result = await hass.config_entries.subentries.async_init(
+        (mock_config_entry.entry_id, subentry_type), context={"source": "user"}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "entry_not_loaded"
+
+
+@pytest.mark.parametrize("subentry_type", [SUBENTRY_TYPE_STT, SUBENTRY_TYPE_TTS])
+async def test_speech_reconfigure(
+    hass, mock_config_entry_with_speech, mock_init_component_with_speech, subentry_type
+) -> None:
+    entry = mock_config_entry_with_speech
+    subentry = next(subentry for subentry in entry.subentries.values() if subentry.subentry_type == subentry_type)
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, subentry_type), context={"source": "reconfigure", "subentry_id": subentry.subentry_id}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_not_supported"
 
 
 async def test_form_creates_entry_with_default_subentries(hass: HomeAssistant) -> None:

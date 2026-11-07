@@ -12,9 +12,10 @@ Connect your Home Assistant to hundreds of AI models from every major provider u
 - **Mix and match models** -- add a fast Llama for everyday conversation, a reasoning model for complex automations, an image model for generation. Each becomes its own HA entity.
 - **LLM models** become conversation agents (with tool calling) and AI task entities for data extraction and summarization
 - **Image models** become AI task entities for on-demand image generation (Flux, Stable Diffusion, etc.)
+- **English voice pipelines** -- transcribe with Whisper Large v3 Turbo and speak with Aura-2's Draco voice through Workers AI
 - **Streaming** -- real-time token delivery in the conversation UI
 - **Swap providers without reconfiguring** -- switch from Llama to Sonnet to Kimi by adding a new model. Your gateway config, system prompts, and automations stay put. You can also route to different models on the gateway itself.
-- **Usage tracking** -- each model gets diagnostic sensors for requests, input/output tokens, cache hits, and errors. Pair with HA's [utility meter](https://www.home-assistant.io/integrations/utility_meter/) for daily/monthly breakdowns
+- **Usage tracking** -- chat and image models get diagnostic sensors for requests, input/output tokens, cache hits, and errors. Pair with HA's [utility meter](https://www.home-assistant.io/integrations/utility_meter/) for daily/monthly breakdowns
 - **Caching** -- per-model TTL to skip redundant API calls
 - **Spend limits, rate limiting, and guardrails** -- set daily/weekly/monthly cost caps, request rate limits, and content safety rules in your [AI Gateway dashboard](https://developers.cloudflare.com/ai-gateway/features/). Configured in Cloudflare, enforced before requests hit providers.
 - **Analytics and logging** -- every request is logged with status, latency, and token counts in the gateway dashboard, with the option for zero log retention if you prefer
@@ -58,6 +59,8 @@ This is the token you'll use to authenticate the Home Assistant integration to t
 
 For Workers AI models, this is the only credential you need.
 
+For speech engines, also add **Account > Workers AI > Read** to this token, keeping its existing AI Gateway permissions. No provider key is needed for Whisper or Aura-2. If you use prepaid credits, enable **Workers AI Billing: Unified billing** in your gateway settings and load credits. See [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/).
+
 If you're using third-party providers (OpenAI, Anthropic, Google, etc.) and don't want consolidated billing, you'll need to add API keys in the "Provider Keys" section of your gateway settings.
 
 ### 4. Add the integration
@@ -83,9 +86,23 @@ From the integration page, click **Add model**:
 
 For a quick start, use `workers-ai` as the provider and one of the models below. Each chat model has a system prompt, an [LLM API](https://www.home-assistant.io/integrations/conversation/) selection for tool calling, and optional tuning (temperature, top_p, max tokens, cache TTL).
 
+## English Assist voice pipeline
+
+1. On the Cloudflare AI Gateway integration page, add a **Speech-to-text engine**, and give it a name (for example, “Cloudflare Whisper”).
+2. Add a **Text-to-speech engine**, and give it a name (for example, “Cloudflare Draco”). Speech engines are added explicitly, not created during initial setup.
+3. Open **Settings > Voice assistants** and add or edit an assistant. Choose **English** (English locales such as `en-US` select the engines' `en` language).
+4. Select your existing conversation agent, **Cloudflare Whisper** for speech-to-text, and **Cloudflare Draco** for text-to-speech. Enable Assist in the conversation agent's LLM API settings to control devices.
+5. Try a spoken command. Confirm that it is transcribed and the reply plays, and that both model requests appear in your Cloudflare gateway logs. If using prepaid billing, verify the charges there as well.
+
+The speech models are fixed: `@cf/openai/whisper-large-v3-turbo` transcribes English, and `@cf/deepgram/aura-2-en` returns MP3 speech with speaker `draco`. There are no model, voice, speed, or pipeline voice overrides. Each short reply uses one TTS request.
+
+STT accepts HA's 16-kHz, 16-bit mono PCM stream and prepares a WAV upload; complete WAV input with those same audio settings is also accepted. The integration caps each recording at **30 seconds** and each spoken reply at **4096 characters**. It does not resample audio or split long replies. Speech engines do not create usage sensors.
+
+Speech requests use Cloudflare's account-scoped Workers AI REST endpoint with your gateway ID. A 401 starts token reauthentication; for 403 errors, check the Workers AI permission and billing prerequisites above. Empty transcripts, non-audio replies, timeouts, and connection errors are reported as failures. Debug logging for this integration records the TTS HTTP status and content type, without audio or response bodies.
+
 ## Usage sensors
 
-Each model automatically gets diagnostic sensors that track usage from requests made through Home Assistant:
+Each chat or image model automatically gets diagnostic sensors that track usage from requests made through Home Assistant:
 
 - **Requests** -- total API calls
 - **Input tokens** -- tokens sent to the model
