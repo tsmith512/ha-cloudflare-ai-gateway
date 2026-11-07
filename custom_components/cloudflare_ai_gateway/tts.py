@@ -28,14 +28,16 @@ async def async_setup_entry(
 class CloudflareTextToSpeechEntity(tts.TextToSpeechEntity):
     """Fixed English Aura-2 engine with the Draco voice."""
 
-    _attr_has_entity_name = True
-    _attr_name = None
+    _attr_has_entity_name = False
     _attr_default_language = "en"
     _attr_supported_languages = ["en"]
 
     def __init__(self, entry: CloudflareAIGatewayConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the speech service device."""
         self.entry = entry
+        # HA's TTS manager requires engine.name, not just a device-derived
+        # friendly name. Use the full subentry title without a device prefix.
+        self._attr_name = subentry.title
         self._attr_unique_id = subentry.subentry_id
         self._attr_device_info = dr.DeviceInfo(
             identifiers={(DOMAIN, subentry.subentry_id)},

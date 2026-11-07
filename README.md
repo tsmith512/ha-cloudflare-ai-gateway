@@ -100,6 +100,14 @@ STT accepts HA's 16-kHz, 16-bit mono PCM stream and prepares a WAV upload; compl
 
 Speech requests use Cloudflare's account-scoped Workers AI REST endpoint with your gateway ID. A 401 starts token reauthentication; for 403 errors, check the Workers AI permission and billing prerequisites above. Empty transcripts, non-audio replies, timeouts, and connection errors are reported as failures. Debug logging for this integration records the TTS HTTP status and content type, without audio or response bodies.
 
+### Live verification and TTS compatibility
+
+The user has confirmed live TTS playback and successful device control from a hardware Assist device using specific English instructions such as “turn on the big lamp.” This exercises speech transcription and the existing conversation agent's device-control path; spoken output has also been verified.
+
+Initial live testing exposed `TTS engine name is not set.` before any Cloudflare request was made. HA's TTS manager requires an explicit engine name, even when the entity already has a device-derived display name. The TTS engine now uses the name chosen during setup, without duplicating the device name. A regression test exercises HA's TTS manager and verifies that the model's MP3 bytes reach the output stream.
+
+If you installed an earlier development copy and see that error, replace `custom_components/cloudflare_ai_gateway/tts.py` with the updated file and restart Home Assistant. Existing speech subentries can be reused.
+
 ## Usage sensors
 
 Each chat or image model automatically gets diagnostic sensors that track usage from requests made through Home Assistant:

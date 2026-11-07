@@ -95,7 +95,9 @@ async def test_registration(
         assert device.manufacturer == "Cloudflare"
         assert device.model == f"workers-ai/{model}"
         assert device.entry_type == dr.DeviceEntryType.SERVICE
-        assert entity.name is None
+    assert stt_entity.name is None
+    assert tts_entity.name == "Test Draco"
+    assert hass.states.get(tts_entity.entity_id).name == "Test Draco"
     assert not hass.states.async_entity_ids("sensor")
     assert entry.runtime_data.model_stats == {}
     assert tts_entity.supported_options is None
@@ -216,6 +218,21 @@ async def test_tts_single_request(tts_entity, mock_speech_http) -> None:
         json={"text": "Hello there", "speaker": "draco", "encoding": "mp3"},
         timeout=SPEECH_TIMEOUT,
     )
+    mock_speech_http.get.assert_not_called()
+
+
+async def test_tts_through_home_assistant_manager(hass, tts_entity, mock_speech_http) -> None:
+    """Exercise the Assist playback path, including HA's engine-name check."""
+    mock_speech_http.post.return_value = httpx.Response(200, content=MP3_AUDIO, headers={"content-type": "audio/mpeg"})
+    stream = tts.async_create_stream(hass, tts_entity.entity_id, language="en")
+    stream.use_file_cache = False
+    stream.async_set_message("Hello from Assist")
+
+    audio = b"".join([chunk async for chunk in stream.async_stream_result()])
+
+    assert stream.extension == "mp3"
+    assert audio == MP3_AUDIO
+    mock_speech_http.post.assert_awaited_once()
     mock_speech_http.get.assert_not_called()
 
 
