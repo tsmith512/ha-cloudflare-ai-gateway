@@ -7,7 +7,7 @@
     "error": {
       "cannot_connect": "Failed to connect to Cloudflare API.",
       "gateway_not_found": "Gateway not found. Check your account ID and gateway name.",
-      "invalid_auth": "Invalid Cloudflare API token.",
+      "invalid_auth": "Cloudflare could not verify this token. Check the token value, owning account, status, and access restrictions.",
       "unknown": "An unknown error occurred."
     },
     "step": {
@@ -15,7 +15,7 @@
         "data": {
           "cf_api_token": "Cloudflare API Token"
         },
-        "description": "Your API token is no longer valid. Enter a new one."
+        "description": "A Cloudflare authentication check failed. Confirm or replace your API token. Both user-owned and account-owned tokens are supported; this prompt does not necessarily mean the token has expired."
       },
       "user": {
         "data": {
@@ -26,7 +26,7 @@
         "data_description": {
           "account_id": "Your Cloudflare account ID, found in the dashboard URL.",
           "gateway_id": "The name of your AI Gateway.",
-          "cf_api_token": "API token with AI Gateway permissions."
+          "cf_api_token": "User-owned or account-owned API token with AI Gateway permissions."
         },
         "description": "Connect to your Cloudflare AI Gateway."
       }
@@ -55,6 +55,40 @@
     }
   },
   "config_subentries": {
+    "stt": {
+      "abort": {
+        "entry_not_loaded": "Cannot add speech engines while the gateway is not loaded.",
+        "reconfigure_not_supported": "This English speech engine has no configurable settings. Rename it from its device page."
+      },
+      "entry_type": "Speech-to-text engine",
+      "initiate_flow": {
+        "reconfigure": "Reconfigure speech-to-text engine",
+        "user": "Add speech-to-text engine"
+      },
+      "step": {
+        "user": {
+          "data": { "name": "Name" },
+          "description": "Transcribe English speech with Workers AI Whisper Large v3 Turbo."
+        }
+      }
+    },
+    "tts": {
+      "abort": {
+        "entry_not_loaded": "Cannot add speech engines while the gateway is not loaded.",
+        "reconfigure_not_supported": "This English speech engine has no configurable settings. Rename it from its device page."
+      },
+      "entry_type": "Text-to-speech engine",
+      "initiate_flow": {
+        "reconfigure": "Reconfigure text-to-speech engine",
+        "user": "Add text-to-speech engine"
+      },
+      "step": {
+        "user": {
+          "data": { "name": "Name" },
+          "description": "Speak English with Workers AI Aura-2 and the Draco voice."
+        }
+      }
+    },
     "conversation": {
       "abort": {
         "entry_not_loaded": "Cannot add agents while the gateway is not loaded.",

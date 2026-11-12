@@ -834,6 +834,7 @@ dev = [
     { name = "home-assistant-intents" },
     { name = "homeassistant" },
     { name = "mutagen" },
+    { name = "probatio" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-homeassistant-custom-component" },
@@ -851,6 +852,7 @@ dev = [
     { name = "home-assistant-intents", specifier = ">=2025.3.28" },
     { name = "homeassistant" },
     { name = "mutagen", specifier = ">=1.47.0" },
+    { name = "probatio", specifier = ">=0.13.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-homeassistant-custom-component", specifier = ">=0.13.236" },
@@ -1407,6 +1409,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "probatio"
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/0d/866a5d14b2deb3a9e93121ec8caeae0f3883cda575218da1a6b46dd6223f/probatio-0.13.0.tar.gz", hash = "sha256:b5941dfdb68d813fbe49551d8802b241c4774f756fe51dfdedbad33e27797373", size = 405374, upload-time = "2026-10-02T09:57:43.616Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/ab/8d3eb6004bec5ec8938baac7b251eed8954a5cdbfe9e342072634494a631/probatio-0.13.0-py3-none-any.whl", hash = "sha256:b592d11c89b536fa42617c3f23fb8798aeb659da2113cc2ec1ff8759f8a34d8a", size = 238295, upload-time = "2026-10-02T09:57:40.897Z" },
 ]
 
 [[package]]

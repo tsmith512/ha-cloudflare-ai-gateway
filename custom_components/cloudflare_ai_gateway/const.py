@@ -24,6 +24,12 @@ CONF_CF_API_TOKEN = "cf_api_token"
 SUBENTRY_TYPE_CONVERSATION = "conversation"
 SUBENTRY_TYPE_AI_TASK_DATA = "ai_task_data"
 SUBENTRY_TYPE_AI_TASK_IMAGE = "ai_task_image"
+SUBENTRY_TYPE_STT = "stt"
+SUBENTRY_TYPE_TTS = "tts"
+
+STT_MODEL = "@cf/openai/whisper-large-v3-turbo"
+TTS_MODEL = "@cf/deepgram/aura-2-en"
+TTS_SPEAKER = "draco"
 
 # Subentry types that get usage tracking sensors
 CHAT_SUBENTRY_TYPES = (SUBENTRY_TYPE_CONVERSATION, SUBENTRY_TYPE_AI_TASK_DATA)

@@ -15,6 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.storage import Store
 
+from .auth import InvalidAuth, TokenValidationError, async_validate_token
 from .config_flow import ModelNotFound, validate_model
 from .const import (
     CONF_ACCOUNT_ID,
@@ -36,7 +37,7 @@ from .const import (
 )
 from .coordinator import CloudflareAnalyticsCoordinator
 
-PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION, Platform.SENSOR)
+PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION, Platform.SENSOR, Platform.STT, Platform.TTS)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type CloudflareAIGatewayConfigEntry = ConfigEntry[CloudflareAIGatewayRuntimeData]
@@ -46,27 +47,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: CloudflareAIGatewayConfi
     """Set up Cloudflare AI Gateway from a config entry."""
     cf_api_token = entry.data[CONF_CF_API_TOKEN]
 
-    # Verify the API token is still valid
+    # User-owned and account-owned tokens have separate verification endpoints.
     try:
-        client = get_async_client(hass)
-        resp = await client.get(
-            "https://api.cloudflare.com/client/v4/user/tokens/verify",
-            headers={"Authorization": f"Bearer {cf_api_token}"},
-            timeout=10.0,
+        await async_validate_token(
+            get_async_client(hass),
+            account_id=entry.data[CONF_ACCOUNT_ID],
+            api_token=cf_api_token,
         )
-    except (httpx.ConnectError, httpx.TimeoutException) as err:
-        raise ConfigEntryNotReady("Cannot reach Cloudflare API") from err
-
-    if resp.status_code in (401, 403):
-        raise ConfigEntryAuthFailed("Invalid Cloudflare API token")
-    try:
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as err:
-        raise ConfigEntryNotReady(f"Cloudflare API returned {resp.status_code}") from err
-
-    result = resp.json()
-    if not result.get("success"):
-        raise ConfigEntryAuthFailed("Invalid Cloudflare API token")
+    except InvalidAuth as err:
+        raise ConfigEntryAuthFailed("Cloudflare API token could not be verified") from err
+    except TokenValidationError as err:
+        raise ConfigEntryNotReady(str(err)) from err
 
     # Validate Workers AI models at startup so users get early feedback on typos
     account_id = entry.data[CONF_ACCOUNT_ID]

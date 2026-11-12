@@ -13,6 +13,12 @@ from openai.types.chat import ChatCompletionMessageParam
 import voluptuous as vol
 from voluptuous_openapi import convert
 
+try:
+    import probatio
+except ImportError:
+    # Older HA releases use Voluptuous and don't provide Probatio.
+    probatio = None
+
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
@@ -51,6 +57,13 @@ if TYPE_CHECKING:
 MAX_TOOL_ITERATIONS = 10
 
 
+def _convert_schema(schema: Any, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
+    """Use the converter matching HA's schema engine and serializer sentinel."""
+    if probatio is not None and isinstance(schema, probatio.Schema):
+        return probatio.to_openapi(schema, custom_serializer=custom_serializer)
+    return convert(schema, custom_serializer=custom_serializer)
+
+
 def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
     """Format tool specification for Chat Completions API."""
     return {
@@ -58,7 +71,7 @@ def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None)
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": convert(tool.parameters, custom_serializer=custom_serializer),
+            "parameters": _convert_schema(tool.parameters, custom_serializer),
         },
     }
 
@@ -308,7 +321,7 @@ class CloudflareAIGatewayBaseLLMEntity(Entity):
 
         if structure:
             custom_serializer = chat_log.llm_api.custom_serializer if chat_log.llm_api else llm.selector_serializer
-            schema = convert(structure, custom_serializer=custom_serializer)
+            schema = _convert_schema(structure, custom_serializer)
             _add_additional_properties_false(schema)
             model_args["response_format"] = {
                 "type": "json_schema",

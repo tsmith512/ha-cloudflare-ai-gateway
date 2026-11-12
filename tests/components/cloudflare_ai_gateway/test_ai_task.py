@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import probatio
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
@@ -26,6 +27,7 @@ from homeassistant.components.media_source.models import PlayMedia
 from homeassistant.config_entries import ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import llm
 from homeassistant.helpers.selector import BooleanSelector, NumberSelector, ObjectSelector, SelectSelector, TextSelector
 
 
@@ -65,11 +67,13 @@ async def test_generate_data_plain_text(
     assert result.data == "Hello!"
 
 
+@pytest.mark.parametrize("schema_module", [vol, probatio], ids=["voluptuous", "probatio"])
 async def test_generate_data_structured(
     hass: HomeAssistant,
     mock_config_entry_with_ai_task_data: MockConfigEntry,
     mock_init_component_with_ai_task_data: None,
     mock_create_stream: AsyncMock,
+    schema_module,
 ) -> None:
     """Test generate_data with structured output parses JSON."""
     # Make the mock return JSON
@@ -84,20 +88,26 @@ async def test_generate_data_structured(
     entity_ids = hass.states.async_entity_ids("ai_task")
     entity_id = next(eid for eid in entity_ids if eid != "ai_task.home_assistant")
 
-    structure = vol.Schema(
+    structure = schema_module.Schema(
         {
-            vol.Required("name"): str,
-            vol.Required("value"): int,
+            schema_module.Required("name"): str,
+            schema_module.Required("value"): int,
         }
     )
 
-    result = await ai_task.async_generate_data(
-        hass,
-        task_name="test_structured",
-        entity_id=entity_id,
-        instructions="Generate data",
-        structure=structure,
-    )
+    if schema_module is probatio:
+        # Newer HA returns Probatio's sentinel for ordinary schema nodes.
+        serializer = MagicMock(return_value=probatio.UNSUPPORTED)
+    else:
+        serializer = llm.selector_serializer
+    with patch("custom_components.cloudflare_ai_gateway.entity.llm.selector_serializer", side_effect=serializer):
+        result = await ai_task.async_generate_data(
+            hass,
+            task_name="test_structured",
+            entity_id=entity_id,
+            instructions="Generate data",
+            structure=structure,
+        )
 
     assert result.data == {"name": "test", "value": 42}
 

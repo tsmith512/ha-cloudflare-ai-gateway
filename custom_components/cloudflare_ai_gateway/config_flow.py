@@ -34,6 +34,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.typing import VolDictType
 
+from .auth import InvalidAuth, TokenValidationError, async_validate_token
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_CACHE_TTL,
@@ -65,6 +66,8 @@ from .const import (
     SUBENTRY_TYPE_AI_TASK_DATA,
     SUBENTRY_TYPE_AI_TASK_IMAGE,
     SUBENTRY_TYPE_CONVERSATION,
+    SUBENTRY_TYPE_STT,
+    SUBENTRY_TYPE_TTS,
     SUPPORTED_IMAGE_MODELS,
     SUPPORTED_PROVIDERS,
     WORKERS_AI_MODEL_PREFIXES,
@@ -79,10 +82,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class InvalidAuth(Exception):
-    """Error to indicate invalid authentication."""
-
-
 class GatewayNotFound(Exception):
     """Error to indicate the gateway was not found."""
 
@@ -94,7 +93,7 @@ class ModelNotFound(Exception):
 async def validate_gateway(hass: HomeAssistant, data: dict[str, Any]) -> None:
     """Validate the gateway credentials.
 
-    1. Verify the API token is valid via CF's token verify endpoint.
+    1. Verify a user-owned or account-owned API token is active.
     2. Check the gateway endpoint responds (doesn't require management API perms).
     """
     api_token = data[CONF_CF_API_TOKEN]
@@ -103,16 +102,7 @@ async def validate_gateway(hass: HomeAssistant, data: dict[str, Any]) -> None:
 
     client = get_async_client(hass)
 
-    # Step 1: Verify the token itself is valid
-    resp = await client.get(
-        "https://api.cloudflare.com/client/v4/user/tokens/verify",
-        headers={"Authorization": f"Bearer {api_token}"},
-        timeout=10.0,
-    )
-    result = resp.json()
-    if not result.get("success"):
-        LOGGER.error("Token verification failed: %s", result.get("errors"))
-        raise InvalidAuth
+    await async_validate_token(client, account_id=account_id, api_token=api_token)
 
     # Step 2: Check the gateway endpoint is reachable
     resp = await client.get(
@@ -171,7 +161,7 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             try:
                 await validate_gateway(self.hass, user_input)
-            except (httpx.ConnectError, httpx.TimeoutException):
+            except (httpx.RequestError, TokenValidationError):
                 LOGGER.error("Cannot connect to Cloudflare API")
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -246,7 +236,7 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             data = {**reauth_entry.data, CONF_CF_API_TOKEN: user_input[CONF_CF_API_TOKEN]}
             try:
                 await validate_gateway(self.hass, data)
-            except (httpx.ConnectError, httpx.TimeoutException):
+            except (httpx.RequestError, TokenValidationError):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
@@ -276,7 +266,25 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             SUBENTRY_TYPE_CONVERSATION: CloudflareChatSubentryFlowHandler,
             SUBENTRY_TYPE_AI_TASK_DATA: CloudflareChatSubentryFlowHandler,
             SUBENTRY_TYPE_AI_TASK_IMAGE: CloudflareImageSubentryFlowHandler,
+            SUBENTRY_TYPE_STT: CloudflareSpeechSubentryFlowHandler,
+            SUBENTRY_TYPE_TTS: CloudflareSpeechSubentryFlowHandler,
         }
+
+
+class CloudflareSpeechSubentryFlowHandler(ConfigSubentryFlow):
+    """Name-only flow for the fixed English speech engines."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Add a speech engine without validating fixed model IDs."""
+        if self._get_entry().state != ConfigEntryState.LOADED:
+            return self.async_abort(reason="entry_not_loaded")
+        if user_input is not None:
+            return self.async_create_entry(title=user_input[CONF_NAME], data={})
+        return self.async_show_form(step_id="user", data_schema=vol.Schema({vol.Required(CONF_NAME): str}))
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Explain that the fixed engines have no configurable settings."""
+        return self.async_abort(reason="reconfigure_not_supported")
 
 
 class CloudflareBaseSubentryFlowHandler(ConfigSubentryFlow):

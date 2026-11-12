@@ -26,6 +26,8 @@ from custom_components.cloudflare_ai_gateway.const import (
     SUBENTRY_TYPE_AI_TASK_DATA,
     SUBENTRY_TYPE_AI_TASK_IMAGE,
     SUBENTRY_TYPE_CONVERSATION,
+    SUBENTRY_TYPE_STT,
+    SUBENTRY_TYPE_TTS,
 )
 from homeassistant.config_entries import ConfigSubentryData
 from homeassistant.const import CONF_LLM_HASS_API
@@ -246,6 +248,34 @@ def _mock_init(hass, entry):
             await hass.async_block_till_done()
 
     return _setup
+
+
+@pytest.fixture
+def mock_config_entry_with_speech(hass: HomeAssistant) -> MockConfigEntry:
+    """Mock a gateway with both fixed speech engines."""
+    entry = MockConfigEntry(
+        title="Cloudflare AI Gateway",
+        domain=DOMAIN,
+        data={
+            CONF_ACCOUNT_ID: "test-account-id",
+            CONF_GATEWAY_ID: "test-gateway",
+            CONF_CF_API_TOKEN: "test-cf-token",
+        },
+        version=1,
+        minor_version=2,
+        subentries_data=[
+            ConfigSubentryData(data={}, subentry_type=kind, title=title, unique_id=None)
+            for kind, title in ((SUBENTRY_TYPE_STT, "Test Whisper"), (SUBENTRY_TYPE_TTS, "Test Draco"))
+        ],
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.fixture
+async def mock_init_component_with_speech(hass: HomeAssistant, mock_config_entry_with_speech: MockConfigEntry) -> None:
+    """Initialize both speech entities using the normal integration setup."""
+    await _mock_init(hass, mock_config_entry_with_speech)()
 
 
 @pytest.fixture
