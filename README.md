@@ -57,6 +57,8 @@ On your gateway page, click the "Create token" button on the right sidebar. The 
 
 This is the token you'll use to authenticate the Home Assistant integration to this gateway.
 
+Both **user-owned API tokens** and **account-owned API tokens** are supported. To use a service credential independent of a user, create an account-owned token under **Manage account > Account API tokens** in Cloudflare. Create it in the same account whose ID you enter in HA, and grant the same AI Gateway and Workers AI permissions needed by your selected features. Account tokens have their own `/accounts/{account_id}/tokens/verify` endpoint; the integration checks both ownership types during setup, startup, and reauthentication.
+
 For Workers AI models, this is the only credential you need.
 
 For speech engines, also add **Account > Workers AI > Read** to this token, keeping its existing AI Gateway permissions. No provider key is needed for Whisper or Aura-2. If you use prepaid credits, enable **Workers AI Billing: Unified billing** in your gateway settings and load credits. See [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/).
@@ -174,7 +176,9 @@ If you have keys for OpenAI, Anthropic, Google, or [other providers](https://dev
 
 ## Troubleshooting
 
-**"Authentication error" or 403:** Your API token doesn't have the right permissions. Create a new one from your gateway page using the "Create token" button.
+**Cloudflare authentication error or 403:** Check the token value and status, the selected Cloudflare account, and the permissions needed by that feature. A 403 can mean missing permissions or access restrictions rather than an expired token. Speech needs **Account > Workers AI > Read** in addition to the gateway permissions.
+
+**A reauthentication warning appears while requests still work:** The prompt records an earlier Cloudflare authentication failure; it does not establish that the token has expired. After updating the integration, complete the prompt by confirming the working token or entering an account-owned replacement. Existing subentries are preserved. HA's local `Error preparing LLM API ... Unauthorized` is a separate permissions problem and does not itself start Cloudflare reauthentication. Timeouts, rate limits, service errors, and malformed verification responses are treated as temporary validation failures, not token expiry.
 
 **Third-party model returns an error:** The provider's API key isn't configured in your [AI Gateway settings](https://dash.cloudflare.com/?to=/:account/ai/ai-gateway/general). Add it there, not in HA.
 

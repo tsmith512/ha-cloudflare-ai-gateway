@@ -34,6 +34,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.typing import VolDictType
 
+from .auth import InvalidAuth, TokenValidationError, async_validate_token
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_CACHE_TTL,
@@ -81,10 +82,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class InvalidAuth(Exception):
-    """Error to indicate invalid authentication."""
-
-
 class GatewayNotFound(Exception):
     """Error to indicate the gateway was not found."""
 
@@ -96,7 +93,7 @@ class ModelNotFound(Exception):
 async def validate_gateway(hass: HomeAssistant, data: dict[str, Any]) -> None:
     """Validate the gateway credentials.
 
-    1. Verify the API token is valid via CF's token verify endpoint.
+    1. Verify a user-owned or account-owned API token is active.
     2. Check the gateway endpoint responds (doesn't require management API perms).
     """
     api_token = data[CONF_CF_API_TOKEN]
@@ -105,16 +102,7 @@ async def validate_gateway(hass: HomeAssistant, data: dict[str, Any]) -> None:
 
     client = get_async_client(hass)
 
-    # Step 1: Verify the token itself is valid
-    resp = await client.get(
-        "https://api.cloudflare.com/client/v4/user/tokens/verify",
-        headers={"Authorization": f"Bearer {api_token}"},
-        timeout=10.0,
-    )
-    result = resp.json()
-    if not result.get("success"):
-        LOGGER.error("Token verification failed: %s", result.get("errors"))
-        raise InvalidAuth
+    await async_validate_token(client, account_id=account_id, api_token=api_token)
 
     # Step 2: Check the gateway endpoint is reachable
     resp = await client.get(
@@ -173,7 +161,7 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             try:
                 await validate_gateway(self.hass, user_input)
-            except (httpx.ConnectError, httpx.TimeoutException):
+            except (httpx.RequestError, TokenValidationError):
                 LOGGER.error("Cannot connect to Cloudflare API")
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -248,7 +236,7 @@ class CloudflareAIGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             data = {**reauth_entry.data, CONF_CF_API_TOKEN: user_input[CONF_CF_API_TOKEN]}
             try:
                 await validate_gateway(self.hass, data)
-            except (httpx.ConnectError, httpx.TimeoutException):
+            except (httpx.RequestError, TokenValidationError):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"

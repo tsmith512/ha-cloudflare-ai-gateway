@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.components import conversation
 from homeassistant.const import ATTR_SUPPORTED_FEATURES
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import intent, llm
 from homeassistant.helpers.selector import TextSelector
 
@@ -143,6 +144,24 @@ async def _converse_error(hass, agent_id):
     )
     assert result.response.response_type == intent.IntentResponseType.ERROR
     return result.response.speech["plain"]["speech"]
+
+
+async def test_ha_permission_error_does_not_start_cloudflare_reauth(
+    hass: HomeAssistant,
+    mock_config_entry_with_subentries: MockConfigEntry,
+    mock_init_component_with_subentries: None,
+) -> None:
+    """Local HA authorization must not be mistaken for a Cloudflare failure."""
+    with (
+        patch("homeassistant.helpers.llm.async_get_api", side_effect=Unauthorized),
+        patch.object(mock_config_entry_with_subentries, "async_start_reauth") as reauth,
+        patch("custom_components.cloudflare_ai_gateway.entity.CloudflareAIGatewayBaseLLMEntity._get_client") as client,
+    ):
+        speech = await _converse_error(hass, "conversation.test_conversation")
+    assert "Error preparing LLM API" in speech
+    reauth.assert_not_called()
+    client.assert_not_called()
+    assert not any(flow["context"]["source"] == "reauth" for flow in hass.config_entries.flow.async_progress())
 
 
 async def test_conversation_auth_error_triggers_reauth(

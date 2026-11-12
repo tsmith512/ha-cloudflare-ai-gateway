@@ -7,7 +7,7 @@
     "error": {
       "cannot_connect": "Failed to connect to Cloudflare API.",
       "gateway_not_found": "Gateway not found. Check your account ID and gateway name.",
-      "invalid_auth": "Invalid Cloudflare API token.",
+      "invalid_auth": "Cloudflare could not verify this token. Check the token value, owning account, status, and access restrictions.",
       "unknown": "An unknown error occurred."
     },
     "step": {
@@ -15,7 +15,7 @@
         "data": {
           "cf_api_token": "Cloudflare API Token"
         },
-        "description": "Your API token is no longer valid. Enter a new one."
+        "description": "A Cloudflare authentication check failed. Confirm or replace your API token. Both user-owned and account-owned tokens are supported; this prompt does not necessarily mean the token has expired."
       },
       "user": {
         "data": {
@@ -26,7 +26,7 @@
         "data_description": {
           "account_id": "Your Cloudflare account ID, found in the dashboard URL.",
           "gateway_id": "The name of your AI Gateway.",
-          "cf_api_token": "API token with AI Gateway permissions."
+          "cf_api_token": "User-owned or account-owned API token with AI Gateway permissions."
         },
         "description": "Connect to your Cloudflare AI Gateway."
       }

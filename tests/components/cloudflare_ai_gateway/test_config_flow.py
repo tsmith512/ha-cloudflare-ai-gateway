@@ -6,6 +6,7 @@ import httpx
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.cloudflare_ai_gateway.auth import TokenValidationError
 from custom_components.cloudflare_ai_gateway.config_flow import GatewayNotFound, InvalidAuth, ModelNotFound
 from custom_components.cloudflare_ai_gateway.const import (
     CONF_ACCOUNT_ID,
@@ -149,6 +150,7 @@ async def test_form_creates_entry_with_default_subentries(hass: HomeAssistant) -
         (InvalidAuth, "invalid_auth"),
         (GatewayNotFound, "gateway_not_found"),
         (httpx.ConnectError("connection failed"), "cannot_connect"),
+        (TokenValidationError("verification unavailable"), "cannot_connect"),
         (RuntimeError("unexpected"), "unknown"),
     ],
 )
@@ -687,10 +689,16 @@ async def test_reauth(
     assert mock_config_entry.data[CONF_CF_API_TOKEN] == "new-token"
 
 
+@pytest.mark.parametrize(
+    ("failure", "error"),
+    [(InvalidAuth, "invalid_auth"), (TokenValidationError, "cannot_connect")],
+)
 async def test_reauth_invalid_token(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_init_component: None,
+    failure,
+    error,
 ) -> None:
     """Test reauthentication flow shows error for invalid token."""
     result = await mock_config_entry.start_reauth_flow(hass)
@@ -698,7 +706,7 @@ async def test_reauth_invalid_token(
     with patch(
         "custom_components.cloudflare_ai_gateway.config_flow.validate_gateway",
         new_callable=AsyncMock,
-        side_effect=InvalidAuth,
+        side_effect=failure,
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -706,7 +714,41 @@ async def test_reauth_invalid_token(
         )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_auth"}
+    assert result["errors"] == {"base": error}
+
+
+async def test_reauth_with_account_token(hass, mock_config_entry, mock_init_component) -> None:
+    """A pending reauth can be completed with an account-owned replacement."""
+    result = await mock_config_entry.start_reauth_flow(hass)
+    client = AsyncMock()
+
+    def response(url, **kwargs):
+        assert kwargs["headers"] == {"Authorization": "Bearer new-account-token"}
+        if url.endswith("/user/tokens/verify"):
+            return httpx.Response(401)
+        if url.endswith("/accounts/test-account-id/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+        assert url == "https://gateway.ai.cloudflare.com/v1/test-account-id/test-gateway/compat"
+        return httpx.Response(405)
+
+    client.get.side_effect = response
+    analytics = AsyncMock()
+    analytics.post.side_effect = httpx.TimeoutException("mock")
+    with (
+        patch("custom_components.cloudflare_ai_gateway.config_flow.get_async_client", return_value=client),
+        patch("custom_components.cloudflare_ai_gateway.get_async_client", return_value=client),
+        patch("custom_components.cloudflare_ai_gateway.coordinator.get_async_client", return_value=analytics),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CF_API_TOKEN: "new-account-token"}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    assert mock_config_entry.data[CONF_CF_API_TOKEN] == "new-account-token"
+    assert not any(flow["context"]["source"] == "reauth" for flow in hass.config_entries.flow.async_progress())
 
 
 # --- AI task image subentry flow ---

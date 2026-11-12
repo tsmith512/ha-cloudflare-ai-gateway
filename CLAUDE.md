@@ -21,6 +21,7 @@ Home Assistant custom integration for Cloudflare AI Gateway. Routes conversation
 ## Architecture
 
 - **Parent config entry** = Cloudflare gateway (account ID, gateway ID, CF API token)
+- `auth.py` verifies both user-owned and account-owned Cloudflare tokens during setup, startup, and reauth. A rejection from the user endpoint alone does not invalidate an account token; temporary verification failures must not be reported as expired credentials
 - **Subentries** = conversation agents, AI data/image tasks, or fixed English STT/TTS engines
 - **Universal/BYOK auth** — CF token in Authorization header, Cloudflare injects stored provider keys
 - Base LLM logic in `entity.py`, platform-specific code in `conversation.py`
@@ -38,6 +39,7 @@ Home Assistant custom integration for Cloudflare AI Gateway. Routes conversation
 ## Key Files
 
 - `custom_components/cloudflare_ai_gateway/entity.py` — base entity with Chat Completions streaming + tool calling
+- `custom_components/cloudflare_ai_gateway/auth.py` — shared user/account token verification and failure classification
 - `custom_components/cloudflare_ai_gateway/conversation.py` — conversation platform
 - `custom_components/cloudflare_ai_gateway/speech.py` — shared Workers AI speech requests and errors
 - `custom_components/cloudflare_ai_gateway/stt.py` — English Whisper transcription and PCM-to-WAV preparation

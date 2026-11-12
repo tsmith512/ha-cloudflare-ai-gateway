@@ -4,6 +4,7 @@ from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cloudflare_ai_gateway.const import (
@@ -18,9 +19,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 
+@pytest.mark.parametrize("account_token", [False, True], ids=["user-token", "account-token"])
 async def test_setup_entry(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
+    account_token: bool,
 ) -> None:
     """Test setting up the integration."""
     mock_response = MagicMock()
@@ -38,6 +41,8 @@ async def test_setup_entry(
         mock_http = AsyncMock()
         mock_get_client.return_value = mock_http
         mock_http.get.return_value = mock_response
+        if account_token:
+            mock_http.get.side_effect = [httpx.Response(401), mock_response]
 
         mock_gql_http = AsyncMock()
         mock_gql_client.return_value = mock_gql_http
@@ -55,6 +60,7 @@ async def test_setup_entry_auth_failure(
 ) -> None:
     """Test setup fails when API token is invalid."""
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.json.return_value = {"success": False, "errors": [{"message": "invalid"}]}
 
     with patch(
